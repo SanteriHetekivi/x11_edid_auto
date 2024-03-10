@@ -1,3 +1,6 @@
+// Connection struct.
+mod connection;
+
 // Monitor struct.
 mod monitor;
 
@@ -44,29 +47,8 @@ fn main() {
         std::process::exit(1);
     }
 
-    // Connect to the X server.
-    let (conn, screen_num) = x11rb::connect(None).expect("Failed to connect to the X server!");
-
-    // Get root window.
-    let window_root: u32 = x11rb::connection::Connection::setup(&conn)
-        .roots
-        .get(screen_num)
-        .expect("Failed to get root for screen number!")
-        .root;
-
-    // Get screen resources.
-    let screen_resources: x11rb::protocol::randr::GetScreenResourcesReply =
-        x11rb::protocol::randr::ConnectionExt::randr_get_screen_resources(&conn, window_root)
-            .expect("Failed to get screen resources!")
-            .reply()
-            .expect("Failed to get reply from screen resources!");
-
-    // Generate a map of mode info id to mode info.
-    let mut mode_info_map: std::collections::HashMap<u32, x11rb::protocol::randr::ModeInfo> =
-        std::collections::HashMap::new();
-    for mode_info in screen_resources.modes {
-        mode_info_map.insert(mode_info.id, mode_info);
-    }
+    // Get connection.
+    let connection: connection::Connection = connection::Connection::new();
 
     // Create a map of monitor id to monitor.
     let mut monitor_map: std::collections::HashMap<String, monitor::Monitor> =
@@ -75,9 +57,9 @@ fn main() {
     // Outputs to monitors.
     println!("Getting monitors...");
     // Loop outputs.
-    for output in screen_resources.outputs {
+    for output in connection.outputs() {
         // Create monitor for output.
-        let monitor: monitor::Monitor = monitor::Monitor::new(&conn, output, window_root);
+        let monitor: monitor::Monitor = monitor::Monitor::new(&connection, output);
         // If monitor has EDID
         if monitor.has_edid() {
             // add it to map.
@@ -119,11 +101,11 @@ fn main() {
                 let monitor: &monitor::Monitor = monitor_map
                     .get(monitor_edid)
                     .expect(&format!("Failed to get monitor for EDID: {}", monitor_edid));
-                monitor.enable(&mode_info_map, x);
+                monitor.enable(x);
                 if x == 0 {
                     monitor.set_primary();
                 }
-                x += &std::convert::TryInto::try_into(monitor.mode_info(&mode_info_map).width)
+                x += &std::convert::TryInto::try_into(monitor.mode_info().width)
                     .expect("Failed to convert width of the monitor to i16!");
             }
 
@@ -153,7 +135,9 @@ fn main() {
     }
 
     // If did not set any monitor groups
-    if !set {
+    if set {
+        connection.end();
+    } else {
         // inform user
         eprintln!("No monitor group with all of it's monitors present found!");
         // and print all of the available monitors
@@ -165,8 +149,9 @@ fn main() {
         std::process::exit(1);
     }
 
+    // Cleanup.
+    std::mem::drop(connection);
+
     // Done.
-    x11rb::connection::Connection::flush(&conn).expect("Failed to flush connection!");
-    std::mem::drop(conn);
     println!("Done!");
 }
