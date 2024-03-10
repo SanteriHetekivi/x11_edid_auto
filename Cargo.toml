@@ -1,0 +1,23 @@
+[package]
+name = "x11_edid_auto"
+version = "1.0.0"
+authors = ["Santeri Hetekivi"]
+edition = "2021"
+rust-version = "1.76.0"
+description = "Automatically set monitors for X server with monitor EDIDs."
+readme = "README.md"
+repository = "https://github.com/SanteriHetekivi/x11_edid_auto/"
+license = "Apache-2.0"
+keywords = ["X11", "X", "EDID", "monitors", "GNU/Linux"]
+categories = ["command-line-utilities", "hardware-support"]
+
+[dependencies.toml]
+version = "0.8.10"
+
+[dependencies.serde]
+version = "1.0.197"
+features = ["derive"]
+
+[dependencies.x11rb]
+version = "0.13.0"
+features = ["randr"]

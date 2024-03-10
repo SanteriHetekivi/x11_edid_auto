@@ -1,0 +1,9 @@
+monitor_groups = [
+    [
+        "XXXX:XXXX:XXXXXXXX",
+        "YYYY:YYYY:YYYYYYYY"
+    ],
+    [
+        "XXXX:XXXX:XXXXXXXX"
+    ],
+]
