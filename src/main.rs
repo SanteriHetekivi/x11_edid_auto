@@ -1,3 +1,6 @@
+// Errors.
+mod errors;
+
 // Connection struct.
 mod connection;
 
