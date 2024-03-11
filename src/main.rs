@@ -51,7 +51,8 @@ fn main() {
     }
 
     // Get connection.
-    let connection: connection::Connection = connection::Connection::new();
+    let connection: connection::Connection =
+        connection::Connection::new().expect("Failed to connect!");
 
     // Create a map of monitor id to monitor.
     let mut monitor_map: std::collections::HashMap<String, monitor::Monitor> =
@@ -60,7 +61,7 @@ fn main() {
     // Outputs to monitors.
     println!("Getting monitors...");
     // Loop outputs.
-    for output in connection.outputs() {
+    for output in connection.outputs().expect("Failed to get outputs!") {
         // Create monitor for output.
         let monitor: monitor::Monitor = monitor::Monitor::new(&connection, output);
         // If monitor has EDID

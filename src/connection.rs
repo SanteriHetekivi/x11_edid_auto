@@ -12,40 +12,45 @@ pub(crate) struct Connection {
 // Methods for connection.
 impl Connection {
     // Make new X11 connection.
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new() -> Result<Self, crate::errors::ConnectionNewError> {
         // Connect to the X server.
-        let (connection, screen_num) =
-            x11rb::connect(None).expect("Failed to connect to the X server!");
+        let (connection, screen_num) = x11rb::connect(None)?;
 
         // Generate connection.
-        Connection {
+        Ok(Connection {
             connection,
             window_root: 0,
             mode_info_map: std::collections::HashMap::new(),
             screen_num,
         }
-        .generate_window_root()
-        .generate_mode_info_map()
+        .generate_window_root()?
+        .generate_mode_info_map()?)
     }
 
     // Generate window root.
-    fn generate_window_root(mut self) -> Self {
-        self.window_root = x11rb::connection::Connection::setup(&self.connection)
+    fn generate_window_root(mut self) -> Result<Self, crate::errors::NoRootForScreenNumberError> {
+        self.window_root = match x11rb::connection::Connection::setup(&self.connection)
             .roots
             .get(self.screen_num)
-            .expect("Failed to get root for screen number!")
-            .root;
-        self
+        {
+            None => {
+                return Err(crate::errors::NoRootForScreenNumberError::new(
+                    self.screen_num,
+                ))
+            }
+            Some(screen) => screen.root,
+        };
+        Ok(self)
     }
 
     // Generate mode info map.
-    fn generate_mode_info_map(mut self) -> Self {
+    fn generate_mode_info_map(mut self) -> Result<Self, x11rb::errors::ReplyError> {
         // Generate a map of mode info id to mode info.
-        for mode_info in self.screen_resources().modes {
+        for mode_info in self.screen_resources()?.modes {
             self.mode_info_map.insert(mode_info.id, mode_info);
         }
 
-        self
+        Ok(self)
     }
 
     // Get EDID for monitor's output.
@@ -167,19 +172,21 @@ impl Connection {
     }
 
     // Get screen resources.
-    fn screen_resources(&self) -> x11rb::protocol::randr::GetScreenResourcesReply {
-        x11rb::protocol::randr::ConnectionExt::randr_get_screen_resources(
-            &self.connection,
-            self.window_root,
+    fn screen_resources(
+        &self,
+    ) -> Result<x11rb::protocol::randr::GetScreenResourcesReply, x11rb::errors::ReplyError> {
+        Ok(
+            x11rb::protocol::randr::ConnectionExt::randr_get_screen_resources(
+                &self.connection,
+                self.window_root,
+            )?
+            .reply()?,
         )
-        .expect("Failed to get screen resources current!")
-        .reply()
-        .expect("Failed to get reply from getting screen resources current!")
     }
 
     // Get outputs.
-    pub(crate) fn outputs(&self) -> Vec<u32> {
-        self.screen_resources().outputs
+    pub(crate) fn outputs(&self) -> Result<Vec<u32>, x11rb::errors::ReplyError> {
+        Ok(self.screen_resources()?.outputs)
     }
 
     // Get current screen resources.
