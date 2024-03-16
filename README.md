@@ -102,5 +102,17 @@ Monitor:
          crtc: 0
 ```
 
+### My own usage
+I'm using [i3](https://i3wm.org/) window manager.  
+I have following at the end of my `~/.config/i3/config`-file.  
+```
+exec_always --no-startup-id /usr/local/bin/x11_edid_auto /etc/x11_edid_auto.toml
+```
+So when [i3](https://i3wm.org/) first starts or when I reload [i3](https://i3wm.org/) it will run this script.  
+I update my `/usr/local/bin/x11_edid_auto` and `/etc/x11_edid_auto.toml` files by running [make](https://www.gnu.org/software/make/).  
+```sh
+make install
+```
+
 ## License
 This project is licensed under the Apache-2.0 License. See the [LICENSE.txt](LISENSE.txt) file for details.

@@ -1,3 +1,6 @@
+// Forbid unsafe code.
+#![forbid(unsafe_code)]
+
 // Structure for monitor.
 pub(crate) struct Monitor<'a> {
     // Connection to X server.
@@ -16,12 +19,12 @@ impl<'a> Monitor<'a> {
         connection: &'a crate::connection::Connection,
         // and output id.
         output: u32,
-    ) -> Self {
-        Monitor {
+    ) -> Result<Self, x11rb::errors::ReplyError> {
+        Ok(Monitor {
             connection,
             output,
-            edid: connection.edid(output),
-        }
+            edid: connection.edid(output)?,
+        })
     }
 
     // Has EDID?
@@ -55,58 +58,77 @@ impl<'a> Monitor<'a> {
     }
 
     // Get output info for monitor's output.
-    fn output_info(&self) -> x11rb::protocol::randr::GetOutputInfoReply {
+    fn output_info(
+        &self,
+    ) -> Result<x11rb::protocol::randr::GetOutputInfoReply, x11rb::errors::ReplyError> {
         self.connection.get_output_info(self.output)
     }
 
     // Name for monitor's output.
-    fn name(&self) -> String {
-        String::from_utf8(self.output_info().name.to_vec())
-            .expect("Failed to convert output name to string!")
+    fn name(&self) -> Result<String, crate::errors::MonitorNameError> {
+        Ok(String::from_utf8(self.output_info()?.name.to_vec())?)
     }
 
     // CRTC for monitor's output.
-    fn crtc(&self) -> u32 {
-        self.output_info().crtc
+    fn crtc(&self) -> Result<u32, x11rb::errors::ReplyError> {
+        Ok(self.output_info()?.crtc)
+    }
+
+    pub(crate) fn monitor_info(&self) -> Vec<String> {
+        vec![
+            format!("edid: {:?}", self.monitor_id()),
+            format!("name: {:?}", self.name().unwrap()),
+            format!("crtc: {:?}", self.crtc().unwrap()),
+        ]
     }
 
     // Print monitor information.
-    pub(crate) fn print_monitor(&self) -> &Self {
+    fn print_monitor(&self) -> &Self {
         println!("Monitor:");
-        println!("\t edid: {:?}", self.monitor_id());
-        println!("\t name: {:?}", self.name());
-        println!("\t crtc: {:?}", self.crtc());
+        for info in self.monitor_info() {
+            println!("\t {}", info);
+        }
         return self;
     }
 
     // Get mode info for monitor's output.
-    pub(crate) fn mode_info(&self) -> x11rb::protocol::randr::ModeInfo {
+    pub(crate) fn mode_info(
+        &self,
+    ) -> Result<x11rb::protocol::randr::ModeInfo, crate::errors::MonitorModeInfoError> {
         let mode_info_map: &std::collections::HashMap<u32, x11rb::protocol::randr::ModeInfo> =
             self.connection.mode_info_map();
-        self.output_info()
-            .modes
-            .iter()
-            .filter_map(|mode_id| mode_info_map.get(mode_id)) // Filter modes that exist in mode_info_map
-            .max_by(|a, b| {
-                a.width
-                    .cmp(&b.width)
-                    .then_with(|| a.height.cmp(&b.height))
-                    .then_with(|| b.dot_clock.cmp(&a.dot_clock))
-            })
-            .expect("Failed to get max mode info for output!")
-            .clone()
+        Ok(
+            match self
+                .output_info()?
+                .modes
+                .iter()
+                .filter_map(|mode_id| mode_info_map.get(mode_id)) // Filter modes that exist in mode_info_map
+                .max_by(|a, b| {
+                    a.width
+                        .cmp(&b.width)
+                        .then_with(|| a.height.cmp(&b.height))
+                        .then_with(|| b.dot_clock.cmp(&a.dot_clock))
+                }) {
+                Some(mode_info) => mode_info.clone(),
+                None => {
+                    return Err(crate::errors::MonitorModeInfoError::NoModesError(
+                        crate::errors::NoModesError::new(),
+                    ))
+                }
+            },
+        )
     }
 
     // Set CRTC config.
-    pub(crate) fn enable(&self, x: i16) -> &Self {
+    pub(crate) fn enable(&self, x: i16) -> Result<&Self, crate::errors::MonitorEnableError> {
         // Print monitor info.
         self.print_monitor();
 
         // Get CRTC.
-        let crtc_existing: u32 = self.crtc();
+        let crtc_existing: u32 = self.crtc()?;
         let crtc: u32;
         if crtc_existing == 0 {
-            crtc = self.connection.get_free_crtc();
+            crtc = self.connection.get_free_crtc()?;
         } else {
             crtc = crtc_existing;
         }
@@ -116,25 +138,25 @@ impl<'a> Monitor<'a> {
             crtc,
             x,
             0,
-            self.mode_info().id,
+            self.mode_info()?.id,
             x11rb::protocol::randr::Rotation::ROTATE0,
             &[self.output],
             crtc_existing,
-        );
+        )?;
 
-        self
+        Ok(self)
     }
 
     // Disable monitor.
-    pub(crate) fn disable(&self) -> &Self {
+    pub(crate) fn disable(&self) -> Result<&Self, x11rb::errors::ReplyError> {
         // Print monitor info.
         self.print_monitor();
 
         // Get CRTC.
-        let crtc: u32 = self.crtc();
+        let crtc: u32 = self.crtc()?;
         if crtc == 0 {
             println!("Monitor is already disabled!");
-            return self;
+            return Ok(self);
         }
 
         // Set CRTC config.
@@ -146,14 +168,14 @@ impl<'a> Monitor<'a> {
             x11rb::protocol::randr::Rotation::ROTATE0,
             &[],
             crtc,
-        );
+        )?;
 
-        self
+        Ok(self)
     }
 
     // Set output as primary.
-    pub(crate) fn set_primary(&self) -> &Self {
-        self.connection.set_output_primary(self.output);
-        self
+    pub(crate) fn set_primary(&self) -> Result<&Self, x11rb::errors::ConnectionError> {
+        self.connection.set_output_primary(self.output)?;
+        Ok(self)
     }
 }
