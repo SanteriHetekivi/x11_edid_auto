@@ -1,3 +1,6 @@
+// Forbid unsafe code.
+#![forbid(unsafe_code)]
+
 // No root for screen number error.
 #[derive(Debug)]
 pub(crate) struct NoRootForScreenNumberError {
@@ -93,24 +96,23 @@ impl From<NoFreeCrtcError> for GetFreeCrtcError {
     }
 }
 
-// Failed to transform to f64 error.
+// CRTC does not have exactly one output error.
 #[derive(Debug)]
-pub(crate) struct TryIntoF64Error {
-    name: String,
-    infallible: std::convert::Infallible,
+pub(crate) struct CrtcDoesNotHaveExactlyOneOutput {
+    outputs_len: usize,
 }
-impl TryIntoF64Error {
-    pub fn new(name: String, infallible: std::convert::Infallible) -> TryIntoF64Error {
-        TryIntoF64Error { name, infallible }
+impl CrtcDoesNotHaveExactlyOneOutput {
+    pub fn new(outputs_len: usize) -> CrtcDoesNotHaveExactlyOneOutput {
+        CrtcDoesNotHaveExactlyOneOutput { outputs_len }
     }
 }
-impl std::error::Error for TryIntoF64Error {}
-impl std::fmt::Display for TryIntoF64Error {
+impl std::error::Error for CrtcDoesNotHaveExactlyOneOutput {}
+impl std::fmt::Display for CrtcDoesNotHaveExactlyOneOutput {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "Failed to tranform {} to f64 and gotted infallible error {:?}!",
-            self.name, self.infallible
+            "Expected CRTC to have only one output, it had {} outputs!",
+            self.outputs_len
         )
     }
 }
@@ -119,14 +121,16 @@ impl std::fmt::Display for TryIntoF64Error {
 #[derive(Debug)]
 pub(crate) enum UpdateScreenSizeError {
     ReplyError(x11rb::errors::ReplyError),
-    TryIntoF64Error(TryIntoF64Error),
+    CrtcDoesNotHaveExactlyOneOutput(CrtcDoesNotHaveExactlyOneOutput),
     ConnectionError(x11rb::errors::ConnectionError),
 }
 impl std::fmt::Display for UpdateScreenSizeError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             UpdateScreenSizeError::ReplyError(e) => write!(f, "Reply error:\n{}", e),
-            UpdateScreenSizeError::TryIntoF64Error(e) => write!(f, "Try into f64 error:\n{}", e),
+            UpdateScreenSizeError::CrtcDoesNotHaveExactlyOneOutput(e) => {
+                write!(f, "CRTC does not have exactly one output error:\n{}", e)
+            }
             UpdateScreenSizeError::ConnectionError(e) => write!(f, "Connection error:\n{}", e),
         }
     }
@@ -136,9 +140,9 @@ impl From<x11rb::errors::ReplyError> for UpdateScreenSizeError {
         UpdateScreenSizeError::ReplyError(err)
     }
 }
-impl From<TryIntoF64Error> for UpdateScreenSizeError {
-    fn from(err: TryIntoF64Error) -> Self {
-        UpdateScreenSizeError::TryIntoF64Error(err)
+impl From<CrtcDoesNotHaveExactlyOneOutput> for UpdateScreenSizeError {
+    fn from(err: CrtcDoesNotHaveExactlyOneOutput) -> Self {
+        UpdateScreenSizeError::CrtcDoesNotHaveExactlyOneOutput(err)
     }
 }
 impl From<x11rb::errors::ConnectionError> for UpdateScreenSizeError {

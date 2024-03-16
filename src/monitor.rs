@@ -1,3 +1,6 @@
+// Forbid unsafe code.
+#![forbid(unsafe_code)]
+
 // Structure for monitor.
 pub(crate) struct Monitor<'a> {
     // Connection to X server.

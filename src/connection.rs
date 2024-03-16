@@ -1,3 +1,6 @@
+// Forbid unsafe code.
+#![forbid(unsafe_code)]
+
 // Structure for connection.
 pub(crate) struct Connection {
     // Connection to X server.
@@ -251,61 +254,25 @@ impl Connection {
                 continue;
             }
 
+            // Update total width and heights in pixels.
+            total_width_px += crtc_info.width;
+            max_height_px = std::cmp::max(max_height_px, crtc_info.height);
+
             // Make sure that has only one output.
             let outputs_len: usize = crtc_info.outputs.len();
             if outputs_len != 1 {
-                panic!("CRTC has {} outputs!", outputs_len);
+                return Err(
+                    crate::errors::UpdateScreenSizeError::CrtcDoesNotHaveExactlyOneOutput(
+                        crate::errors::CrtcDoesNotHaveExactlyOneOutput::new(outputs_len),
+                    ),
+                );
             }
 
             // Get monitor info for output.
             let output_info: x11rb::protocol::randr::GetOutputInfoReply =
                 self.get_output_info(crtc_info.outputs[0])?;
-
-            // Get width in pixels.
-            let width_px: u16 = crtc_info.width;
-            // Get height in pixels.
-            let height_px: u16 = crtc_info.height;
-
-            // Update total width and heights.
-            total_width_px += width_px;
-            max_height_px = std::cmp::max(max_height_px, height_px);
-            let width_px_float = std::convert::TryInto::<f64>::try_into(width_px).map_err(
-                |infallible: std::convert::Infallible| {
-                    crate::errors::TryIntoF64Error::new(
-                        "CRTC info width in pixels".to_string(),
-                        infallible,
-                    )
-                },
-            )?;
-            let width_mm_float = std::convert::TryInto::<f64>::try_into(output_info.mm_width)
-                .map_err(|infallible: std::convert::Infallible| {
-                    crate::errors::TryIntoF64Error::new(
-                        "Output info width in millimeters".to_string(),
-                        infallible,
-                    )
-                })?;
-            // TODO: Fix calculation because not its just always width_mm_float.
-            total_width_mm += (width_px_float * (width_mm_float / width_px_float)).ceil() as u32;
-            let height_px_float = std::convert::TryInto::<f64>::try_into(height_px).map_err(
-                |infallible: std::convert::Infallible| {
-                    crate::errors::TryIntoF64Error::new(
-                        "CRTC info height in pixels".to_string(),
-                        infallible,
-                    )
-                },
-            )?;
-            let height_mm_float = std::convert::TryInto::<f64>::try_into(output_info.mm_height)
-                .map_err(|infallible: std::convert::Infallible| {
-                    crate::errors::TryIntoF64Error::new(
-                        "Output info height in millimeters".to_string(),
-                        infallible,
-                    )
-                })?;
-            // TODO: Fix calculation because not its just always height_mm_float.
-            max_height_mm = std::cmp::max(
-                max_height_mm,
-                (height_px_float * (height_mm_float / height_px_float)).ceil() as u32,
-            );
+            total_width_mm += output_info.mm_width;
+            max_height_mm = std::cmp::max(max_height_mm, output_info.mm_height);
         }
 
         // Set screen size.

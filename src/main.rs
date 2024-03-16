@@ -1,3 +1,6 @@
+// Forbid unsafe code.
+#![forbid(unsafe_code)]
+
 // Errors.
 mod errors;
 
