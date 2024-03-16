@@ -54,49 +54,56 @@ impl Connection {
     }
 
     // Get EDID for monitor's output.
-    pub(crate) fn edid(&self, output: u32) -> Vec<u8> {
-        x11rb::protocol::randr::ConnectionExt::randr_get_output_property(
-            &self.connection,
-            output,
-            x11rb::protocol::xproto::ConnectionExt::intern_atom(&self.connection, false, b"EDID")
-                .expect("Failed to get atom identifier for EDID!")
-                .reply()
-                .expect("Failed to get reply from getting atom identifier for EDID!")
+    pub(crate) fn edid(&self, output: u32) -> Result<Vec<u8>, x11rb::errors::ReplyError> {
+        Ok(
+            x11rb::protocol::randr::ConnectionExt::randr_get_output_property(
+                &self.connection,
+                output,
+                x11rb::protocol::xproto::ConnectionExt::intern_atom(
+                    &self.connection,
+                    false,
+                    b"EDID",
+                )?
+                .reply()?
                 .atom,
-            x11rb::protocol::xproto::AtomEnum::ANY,
-            0,
-            u32::MAX,
-            false,
-            false,
+                x11rb::protocol::xproto::AtomEnum::ANY,
+                0,
+                u32::MAX,
+                false,
+                false,
+            )?
+            .reply()?
+            .data
+            .to_vec(),
         )
-        .expect("Failed to get output property!")
-        .reply()
-        .expect("Failed to get reply from getting output property!")
-        .data
-        .to_vec()
     }
 
     // Get output info for given output id.
     pub(crate) fn get_output_info(
         &self,
         output: u32,
-    ) -> x11rb::protocol::randr::GetOutputInfoReply {
-        x11rb::protocol::randr::ConnectionExt::randr_get_output_info(&self.connection, output, 0)
-            .expect("Failed to get output info!")
-            .reply()
-            .expect("Failed to get reply from getting output info!")
+    ) -> Result<x11rb::protocol::randr::GetOutputInfoReply, x11rb::errors::ReplyError> {
+        Ok(
+            x11rb::protocol::randr::ConnectionExt::randr_get_output_info(
+                &self.connection,
+                output,
+                0,
+            )?
+            .reply()?,
+        )
     }
 
     // Get CRTC info for monitor's output's CRTC.
-    fn get_crtc_info(&self, crtc: u32) -> x11rb::protocol::randr::GetCrtcInfoReply {
-        x11rb::protocol::randr::ConnectionExt::randr_get_crtc_info(
+    fn get_crtc_info(
+        &self,
+        crtc: u32,
+    ) -> Result<x11rb::protocol::randr::GetCrtcInfoReply, x11rb::errors::ReplyError> {
+        Ok(x11rb::protocol::randr::ConnectionExt::randr_get_crtc_info(
             &self.connection,
             crtc,
             x11rb::CURRENT_TIME,
-        )
-        .expect("Failed to get CRTC info!")
-        .reply()
-        .expect("Failed to get reply from getting CRTC info!")
+        )?
+        .reply()?)
     }
 
     // Print CRTC info.
@@ -110,6 +117,7 @@ impl Connection {
         println!("\t rotation: {:?}", crtc_info.rotation);
     }
 
+    // Get mode info map.
     pub(crate) fn mode_info_map(
         &self,
     ) -> &std::collections::HashMap<u32, x11rb::protocol::randr::ModeInfo> {
@@ -126,9 +134,9 @@ impl Connection {
         rotation: x11rb::protocol::randr::Rotation,
         outputs: &[u32],
         crtc_existing: u32,
-    ) -> &Self {
+    ) -> Result<&Self, x11rb::errors::ReplyError> {
         // Get CRTC info.
-        let crtc_info: x11rb::protocol::randr::GetCrtcInfoReply = self.get_crtc_info(crtc);
+        let crtc_info: x11rb::protocol::randr::GetCrtcInfoReply = self.get_crtc_info(crtc)?;
         // Print CRTC info.
         Self::print_crtc_info(&crtc_info);
 
@@ -143,7 +151,7 @@ impl Connection {
             // inform
             println!("CRTC config is already set!");
             // and just return.
-            return self;
+            return Ok(self);
         }
 
         // Set CRTC config.
@@ -164,11 +172,10 @@ impl Connection {
             mode,
             rotation,
             outputs,
-        )
-        .expect("Failed to set CRTC config!");
+        )?;
 
         // Flush connection.
-        self.flush()
+        Ok(self.flush()?)
     }
 
     // Get screen resources.
@@ -190,47 +197,54 @@ impl Connection {
     }
 
     // Get current screen resources.
-    fn screen_resources_current(&self) -> x11rb::protocol::randr::GetScreenResourcesCurrentReply {
-        x11rb::protocol::randr::ConnectionExt::randr_get_screen_resources_current(
-            &self.connection,
-            self.window_root,
+    fn screen_resources_current(
+        &self,
+    ) -> Result<x11rb::protocol::randr::GetScreenResourcesCurrentReply, x11rb::errors::ReplyError>
+    {
+        Ok(
+            x11rb::protocol::randr::ConnectionExt::randr_get_screen_resources_current(
+                &self.connection,
+                self.window_root,
+            )?
+            .reply()?,
         )
-        .expect("Failed to get screen resources current!")
-        .reply()
-        .expect("Failed to get reply from getting screen resources current!")
     }
 
     // Get free CRTC.
-    pub(crate) fn get_free_crtc(&self) -> u32 {
-        self.screen_resources_current()
-            .crtcs
-            .iter()
-            .find(|crtc| (**crtc != 0 && self.get_crtc_info(**crtc).mode == 0))
-            .expect("Did not find available CRTC!")
-            .clone()
+    pub(crate) fn get_free_crtc(&self) -> Result<u32, crate::errors::GetFreeCrtcError> {
+        for crtc in self.screen_resources_current()?.crtcs.iter() {
+            if *crtc != 0 && self.get_crtc_info(*crtc)?.mode == 0 {
+                return Ok(*crtc);
+            }
+        }
+        Err(crate::errors::GetFreeCrtcError::NoFreeCrtcError(
+            crate::errors::NoFreeCrtcError::new(),
+        ))
     }
 
     // Set output as primary.
-    pub(crate) fn set_output_primary(&self, output: u32) -> &Self {
+    pub(crate) fn set_output_primary(
+        &self,
+        output: u32,
+    ) -> Result<&Self, x11rb::errors::ConnectionError> {
         x11rb::protocol::randr::ConnectionExt::randr_set_output_primary(
             &self.connection,
             self.window_root,
             output,
-        )
-        .expect("Failed to set output as primary!");
-        self
+        )?;
+        Ok(self)
     }
 
     // Update screen size to fit all monitors.
-    fn update_screen_size(&self) -> &Self {
+    fn update_screen_size(&self) -> Result<&Self, crate::errors::UpdateScreenSizeError> {
         let mut total_width_px: u16 = 0;
         let mut max_height_px: u16 = 0;
         let mut total_width_mm: u32 = 0;
         let mut max_height_mm: u32 = 0;
         // Loop all of the CRTCs.
-        for crtc in self.screen_resources_current().crtcs {
+        for crtc in self.screen_resources_current()?.crtcs {
             // Get info.
-            let crtc_info = self.get_crtc_info(crtc);
+            let crtc_info: x11rb::protocol::randr::GetCrtcInfoReply = self.get_crtc_info(crtc)?;
 
             // Skip ones that are not in use.
             if crtc_info.mode == 0 {
@@ -238,13 +252,14 @@ impl Connection {
             }
 
             // Make sure that has only one output.
-            if crtc_info.outputs.len() != 1 {
-                panic!("CRTC has {} outputs!", crtc_info.outputs.len());
+            let outputs_len: usize = crtc_info.outputs.len();
+            if outputs_len != 1 {
+                panic!("CRTC has {} outputs!", outputs_len);
             }
 
             // Get monitor info for output.
             let output_info: x11rb::protocol::randr::GetOutputInfoReply =
-                self.get_output_info(crtc_info.outputs[0]);
+                self.get_output_info(crtc_info.outputs[0])?;
 
             // Get width in pixels.
             let width_px: u16 = crtc_info.width;
@@ -254,22 +269,42 @@ impl Connection {
             // Update total width and heights.
             total_width_px += width_px;
             max_height_px = std::cmp::max(max_height_px, height_px);
-            total_width_mm += (std::convert::TryInto::<f64>::try_into(width_px)
-                .expect("Failed to transform width in pixels to float")
-                * (std::convert::TryInto::<f64>::try_into(output_info.mm_width)
-                    .expect("Failed to transform width in pixels to float")
-                    / std::convert::TryInto::<f64>::try_into(crtc_info.width)
-                        .expect("Failed to transform width in millimeters to float")))
-            .ceil() as u32;
+            let width_px_float = std::convert::TryInto::<f64>::try_into(width_px).map_err(
+                |infallible: std::convert::Infallible| {
+                    crate::errors::TryIntoF64Error::new(
+                        "CRTC info width in pixels".to_string(),
+                        infallible,
+                    )
+                },
+            )?;
+            let width_mm_float = std::convert::TryInto::<f64>::try_into(output_info.mm_width)
+                .map_err(|infallible: std::convert::Infallible| {
+                    crate::errors::TryIntoF64Error::new(
+                        "Output info width in millimeters".to_string(),
+                        infallible,
+                    )
+                })?;
+            // TODO: Fix calculation because not its just always width_mm_float.
+            total_width_mm += (width_px_float * (width_mm_float / width_px_float)).ceil() as u32;
+            let height_px_float = std::convert::TryInto::<f64>::try_into(height_px).map_err(
+                |infallible: std::convert::Infallible| {
+                    crate::errors::TryIntoF64Error::new(
+                        "CRTC info height in pixels".to_string(),
+                        infallible,
+                    )
+                },
+            )?;
+            let height_mm_float = std::convert::TryInto::<f64>::try_into(output_info.mm_height)
+                .map_err(|infallible: std::convert::Infallible| {
+                    crate::errors::TryIntoF64Error::new(
+                        "Output info height in millimeters".to_string(),
+                        infallible,
+                    )
+                })?;
+            // TODO: Fix calculation because not its just always height_mm_float.
             max_height_mm = std::cmp::max(
                 max_height_mm,
-                (std::convert::TryInto::<f64>::try_into(height_px)
-                    .expect("Failed to transform height in pixels to float")
-                    * (std::convert::TryInto::<f64>::try_into(output_info.mm_width)
-                        .expect("Failed to transform height in pixels to float")
-                        / std::convert::TryInto::<f64>::try_into(crtc_info.height)
-                            .expect("Failed to transform height in millimeters to float")))
-                .ceil() as u32,
+                (height_px_float * (height_mm_float / height_px_float)).ceil() as u32,
             );
         }
 
@@ -281,25 +316,23 @@ impl Connection {
             max_height_px,
             total_width_mm,
             max_height_mm,
-        )
-        .expect("Failed to set screen size!");
+        )?;
         println!(
             "Set screen size to {}x{}px, {}x{}mm",
             total_width_px, max_height_px, total_width_mm, max_height_mm
         );
-        self
+        Ok(self)
     }
 
     // Flush connection.
-    fn flush(&self) -> &Self {
-        x11rb::connection::Connection::flush(&self.connection)
-            .expect("Failed to flush connection!");
-        self
+    fn flush(&self) -> Result<&Self, x11rb::errors::ConnectionError> {
+        x11rb::connection::Connection::flush(&self.connection)?;
+        Ok(self)
     }
 
     // End connection.
-    pub(crate) fn end(&self) -> &Self {
-        self.update_screen_size();
-        self.flush()
+    pub(crate) fn end(&self) -> Result<&Self, crate::errors::ConnectionEndError> {
+        self.update_screen_size()?;
+        Ok(self.flush()?)
     }
 }
